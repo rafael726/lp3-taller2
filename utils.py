@@ -3,7 +3,7 @@ Módulo de utilidades para la aplicación.
 Contiene funciones auxiliares utilizadas en diferentes partes de la aplicación.
 """
 import re
-from datetime import datetime
+from datetime import datetime, date
 
 def validar_correo(correo):
     """
@@ -15,8 +15,7 @@ def validar_correo(correo):
     Returns:
         bool: True si el correo es válido, False en caso contrario
     """
-    # TODO: crear la expresión regular para validar el correo
-    patron = ""
+    patron = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
     return bool(re.match(patron, correo))
 
 def formatear_duracion(minutos):
@@ -29,9 +28,10 @@ def formatear_duracion(minutos):
     Returns:
         str: Duración formateada como hh:mm
     """
-    # TODO: pendiente de implementar
-    pass 
+    hora, minutos = divmod(minutos, 60)
+    return f"{hora:02d}:{minutos:02d}"
 
+print(formatear_duracion(180))
 def generar_slug(texto):
     """
     Genera un slug a partir de un texto.
@@ -43,16 +43,19 @@ def generar_slug(texto):
     Returns:
         str: Slug generado
     """
-    # TODO: Convertir a minúsculas
-    slug = texto
+    # Convertir a minúsculas
+    slug = texto.lower().strip()
     
-    # TODO: Reemplazar espacios con guiones
+    #  Reemplazar espacios con guiones
+    slug = re.sub(r'[\s_-]+', '-', slug)
+    # Eliminar caracteres no alfanuméricos (excepto guiones)
+    slug = re.sub(r'[^a-z0-9-]', '', slug)
     
-    # TODO: Eliminar caracteres no alfanuméricos (excepto guiones)
+    # Reemplazar múltiples guiones con uno solo
+    slug = re.sub(r'-+', '-', slug)
     
-    # TODO: Reemplazar múltiples guiones con uno solo
-    
-    # TODO: Eliminar guiones al inicio y final
+    # Eliminar guiones al inicio y final
+    slug = slug.strip('-')
     
     return slug
 
@@ -63,8 +66,11 @@ def obtener_año_actual():
     Returns:
         int: Año actual
     """
-    # TODO: pendiente por implementar
-    return ""
+    #  pendiente por implementar
+    
+    año_actual = date.today().year
+    return año_actual
+print(obtener_año_actual())
 
 def validar_año(año):
     """
@@ -78,4 +84,6 @@ def validar_año(año):
     """
     año_actual = obtener_año_actual()
     return 1900 <= año <= año_actual
+
+print(validar_año(2026))
 
