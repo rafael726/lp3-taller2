@@ -4,8 +4,9 @@ from contextlib import asynccontextmanager
 
 from app.database import create_db_and_tables
 from app.routers import usuarios, peliculas, favoritos
+from app.config import get_settings
 
-# TODO: Importar la configuración desde app.config
+settings = get_settings()
 
 
 @asynccontextmanager
@@ -14,49 +15,115 @@ async def lifespan(app: FastAPI):
     Gestor de ciclo de vida de la aplicación.
     Se ejecuta al iniciar y al cerrar la aplicación.
     """
-    # Startup: Crear tablas en la base de datos
+    #Crear tablas en la base de datos
     create_db_and_tables()
     yield
     
-    # Shutdown: Limpiar recursos si es necesario
+    #Limpiar recursos si es necesario
     print("cerrando aplicación...")
 
 
-# TODO: Crear la instancia de FastAPI con metadatos apropiados
-# Incluir: title, description, version, contact, license_info
+# Crear la instancia de FastAPI con metadatos apropiados
 app = FastAPI(
-    title="API de Películas",
+    title=settings.app_name,
     description="API RESTful para gestionar usuarios, películas y favoritos",
-    version="1.0.0",
+    version=settings.app_version,
     lifespan=lifespan,
-    # TODO: Agregar información de contacto y licencia
-    # contact={
-    #     "name": "Tu Nombre",
-    #     "email": "tu.email@example.com",
-    # },
-    # license_info={
-    #     "name": "MIT",
-    # },
+    contact={
+        "name": "Equipo de Desarrollo",
+        "email": "contacto@pelimaniaticos.com",
+    },
+    license_info={
+        "name": "MIT",
+        "url": "https://opensource.org/licenses/MIT",
+    },
 )
 
 
-# TODO: Configurar CORS para permitir solicitudes desde diferentes orígenes
-# Esto es importante para desarrollo con frontend separado
+# Configurar CORS para permitir solicitudes desde diferentes orígenes
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # TODO: En producción, especificar orígenes permitidos
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# TODO: Incluir los routers de usuarios, peliculas y favoritos
-# Ejemplo:
-# app.include_router(usuarios.router, prefix="/api/usuarios", tags=["Usuarios"])
+# Incluir los routers de usuarios, peliculas y favoritos
+app.include_router(usuarios.router)
+app.include_router(peliculas.router)
+app.include_router(favoritos.router)
 
 
-# TODO: Crear un endpoint raíz que retorne información básica de la API
+
+@app.middleware("http")
+async def log_requests(request, call_next):
+    """
+    Middleware para registrar información de las solicitudes HTTP.
+    """
+    import time
+    import logging
+    
+    logger = logging.getLogger("uvicorn")
+    start_time = time.time()
+    
+    # Procesar la solicitud
+    response = await call_next(request)
+    
+    process_time = time.time() - start_time
+    
+    # Registrar información
+    logger.info(
+        f"{request.method} {request.url.path} - "
+        f"Status: {response.status_code} - "
+        f"Time: {process_time:.4f}s"
+    )
+    
+    # Agregar header con tiempo de procesamiento
+    response.headers["X-Process-Time"] = str(process_time)
+    
+    return response
+
+
+# Manejadores de errores personalizados
+from fastapi import Request
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Manejador personalizado para errores de validación.
+    """
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Error de validación",
+            "errors": exc.errors(),
+            "body": exc.body
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """
+    Manejador general para excepciones no capturadas.
+    """
+    import logging
+    logger = logging.getLogger("uvicorn")
+    logger.error(f"Error no manejado: {exc}", exc_info=True)
+    
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Error interno del servidor",
+            "message": str(exc) if settings.debug else "Ha ocurrido un error inesperado"
+        }
+    )
+
+
+# Crear un endpoint raíz que retorne información básica de la API
 @app.get("/", tags=["Root"])
 async def root():
     """
@@ -64,7 +131,16 @@ async def root():
     Retorna información básica y enlaces a la documentación.
     """
     return {
-        # TODO: Agregar información 
+        "nombre": settings.app_name,
+        "version": settings.app_version,
+        "descripcion": "API RESTful para gestionar usuarios, películas y favoritos",
+        "documentacion": "/docs",
+        "documentacion_alternativa": "/redoc",
+        "endpoints": {
+            "usuarios": "/api/usuarios",
+            "peliculas": "/api/peliculas",
+            "favoritos": "/api/favoritos"
+        }
     }
 
 
@@ -75,23 +151,34 @@ async def health_check():
     Health check endpoint para verificar el estado de la API.
     Útil para sistemas de monitoreo y orquestación.
     """
+    from app.database import engine
+    import time
+    
+    # Verificar conexión a base de datos
+    db_status = "healthy"
+    try:
+        with engine.connect() as conn:
+            conn.execute("SELECT 1")
+    except Exception as e:
+        db_status = f"unhealthy: {str(e)}"
+    
     return {
         "status": "healthy",
-        # TODO: Agregar verificación de conexión a base de datos
-        # TODO: Agregar información sobre el sistema (uptime, memoria, etc.)
+        "timestamp": time.time(),
+        "database": db_status,
+        "environment": settings.environment,
+        "version": settings.app_version
     }
-
-
-# TODO: Opcional - Agregar middleware para logging de requests
-
-
-# TODO: Opcional - Agregar manejadores de errores personalizados
 
 
 if __name__ == "__main__":
     import uvicorn
     
     uvicorn.run(
-        # TODO: Configurar el servidor uvicorn con los parámetros apropiados
+        "main:app",
+        host=settings.host,
+        port=settings.port,
+        reload=settings.debug,
+        log_level=settings.LOG_LEVEL.lower()
     )
 
