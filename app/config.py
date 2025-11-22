@@ -3,8 +3,10 @@ Configuración de la aplicación.
 Maneja diferentes entornos: desarrollo, pruebas y producción.
 """
 
+import json
 from pydantic_settings import BaseSettings
-from typing import Literal
+from pydantic import Field, field_validator
+from typing import Literal, Optional
 
 
 class Settings(BaseSettings):
@@ -13,98 +15,112 @@ class Settings(BaseSettings):
     Lee las variables de entorno desde el archivo .env
     """
     
-    # TODO: Configuración básica de la aplicación
-    app_name: str = "API de Películas"
-    app_version: str = "1.0.0"
+    #  Configuración básica de la aplicación
     
-    # TODO: Configuración del entorno
-    # environment: Literal["development", "testing", "production"] = "development"
-    environment: str = "development"
+    app_name: str = "pelimaniaticos"
+    app_version: str = "1.0.1"
     
-    # TODO: Configuración de la base de datos
-    # Para SQLite: sqlite:///./peliculas.db
-    # Para PostgreSQL: postgresql://user:password@localhost/dbname
-    database_url: str = "sqlite:///./peliculas.db"
+    # : Configuración del entorno
+    environment: Literal["development", "testing", "production"] = Field(
+        default="development",
+        description="entorno de ejecucion"
+    )
     
-    # TODO: Configuración del servidor
-    host: str = "0.0.0.0"
-    port: int = 8000
-    debug: bool = True
     
-    # TODO: Configuración de CORS
-    # En desarrollo puedes usar ["*"], en producción especifica los orígenes permitidos
-    cors_origins: list[str] = ["*"]
     
-    # TODO: Configuración de seguridad (para futuras mejoras)
-    # secret_key: str = "your-secret-key-here"  # Cambiar en producción
-    # algorithm: str = "HS256"
-    # access_token_expire_minutes: int = 30
+    database_url: str = Field(
+        default="sqlite:///./peliculas.db",
+        description="URL de conexion a la base de datos"
+    )
+   
     
-    # TODO: Configuración de logging
-    # log_level: str = "INFO"
+    # : Configuración del servidor
+    host: str = Field(default="localhost", description="host del servidor")
+    port: int = Field(default=8000, ge=1, le=65535, description="puerto del servidor")
+    debug: bool = Field(default=True, description="modo debug") 
     
-    class Config:
-        """
-        Configuración de Pydantic Settings.
-        """
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
+    #: Configuración de CORS
+    cors_origins: list[str] = Field(
+        default=["*"],
+        description="origenes permitidos para CORS"
+    )
+    
+    
+    # : Configuración de logging
+    LOG_LEVEL: str = Field(
+        default="INFO",
+        description="nivel de logging"
+    )
+    log_file: Optional[str] = Field(
+        default=None,
+        description="archivo de log (opcional)"
+    )
+    
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "case_sensitive": False,
+        "env_nested_delimiter": "__"
+    }
+    
+
         
-        # TODO: Opcional - Agregar validación personalizada
-        # @validator("database_url")
-        # def validate_database_url(cls, v):
-        #     if not v:
-        #         raise ValueError("DATABASE_URL no puede estar vacío")
-        #     return v
+    @field_validator("database_url")
+    @classmethod
+    def validate_database_url(cls, v):
+        """valida url de la base de datos que no este vacio"""
+        if not v or not v.strip():
+            raise ValueError("DATABASE_URL no debe estar vacio")
+        return v.strip()
+    
+    
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def validate_cors_origins(cls,v):
+        """convertir string JSON a lista si es necesario"""
+        if isinstance(v, str):
+            try:
+                #si viene como strign json desde env
+                return json.loads(v)
+            except json.JSONDecodeError:
+                #viene como strign simple para crear lista
+                return [v.strip()]
+        return v
+    
+    @field_validator("LOG_LEVEL")
+    @classmethod
+    def validate_log_level(cls, v):
+        """Normaliza nivel de logging"""
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        v_upper = v.upper()
+        if v_upper not in valid_levels:
+            raise ValueError(f"LOG_LEVEL debe ser uno de: {', '.join(valid_levels)}")
+        return v_upper
+        
+    
 
-
-# TODO: Crear una instancia global de Settings
 settings = Settings()
 
 
-# TODO: Opcional - Crear diferentes configuraciones para cada entorno
 class DevelopmentSettings(Settings):
     """Configuración para el entorno de desarrollo."""
     debug: bool = True
-    # TODO: Agregar configuraciones específicas de desarrollo
+    LOG_LEVEL: str = "DEBUG"
+    cors_origins: list[str] = ['*']
+    log_file: Optional[str] = None
 
 
-class TestingSettings(Settings):
-    """Configuración para el entorno de pruebas."""
-    # TODO: Usar una base de datos diferente para pruebas
-    database_url: str = "sqlite:///./test_peliculas.db"
-    # TODO: Agregar configuraciones específicas de pruebas
 
-
-class ProductionSettings(Settings):
-    """Configuración para el entorno de producción."""
-    debug: bool = False
-    # TODO: Agregar configuraciones específicas de producción
-    # TODO: Cambiar a una base de datos más robusta (PostgreSQL, MySQL)
-    # database_url: str = "postgresql://user:password@localhost/peliculas_prod"
-
-
-# TODO: Función para obtener la configuración según el entorno
 def get_settings() -> Settings:
     """
     Retorna la configuración apropiada según el entorno.
     """
-    env = settings.environment.lower()
+    settings = Settings()
+    env = settings.environment.lower() # Cuando se requiera otros entornos se usará la variable para validar
+    # por ahoro retorna entorno de development
     
-    if env == "testing":
-        return TestingSettings()
-    elif env == "production":
-        return ProductionSettings()
-    else:
-        return DevelopmentSettings()
+    return DevelopmentSettings()
 
 
-# TODO: Opcional - Agregar validación de configuración al inicio
-# def validate_settings():
-#     """Valida que todas las configuraciones necesarias estén presentes."""
-#     required_settings = ["database_url", "app_name"]
-#     for setting in required_settings:
-#         if not getattr(settings, setting, None):
-#             raise ValueError(f"Configuración requerida no encontrada: {setting}")
+
 
