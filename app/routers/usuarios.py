@@ -3,33 +3,54 @@ Router de Usuarios.
 Endpoints para gestionar usuarios en la plataforma.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import Session, select
 from typing import List
 
 from app.database import get_session
 from app.models import Usuario, Favorito, Pelicula
 from app.schemas import (
+    Login,
+    MessageResponse,
     UsuarioCreate,
     UsuarioRead,
     UsuarioUpdate,
-    UsuarioWithFavoritos,
-    PeliculaRead
+    PeliculaRead,
+    usuarios_paginados
 )
 
-# TODO: Crear el router con prefijo y tags
+
 router = APIRouter(
     prefix="/api/usuarios",
     tags=["Usuarios"]
 )
 
 
-# TODO: Endpoint para listar todos los usuarios
-@router.get("/", response_model=List[UsuarioRead])
+@router.post("/login", response_model=UsuarioRead)
+def login(
+    usuario:Login,
+    session:Session = Depends(get_session)
+):
+    usuario = session.exec(
+        select(Usuario)
+        .where(
+            Usuario.correo == usuario.correo,
+            Usuario.nombre == usuario.nombre
+            )).first()
+
+    if not usuario:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "credenciales incorrectas"
+        )
+    
+    return usuario
+
+@router.get("/", response_model=usuarios_paginados)
 def listar_usuarios(
     session: Session = Depends(get_session),
-    skip: int = 0,
-    limit: int = 100
+    page: int = Query(1, ge=1, description="numero de pagina"),
+    limit: int = Query(10, ge=1, le=100, description="elementos por pagina")
 ):
     """
     Lista todos los usuarios registrados.
@@ -37,12 +58,21 @@ def listar_usuarios(
     - **skip**: Número de registros a omitir (para paginación)
     - **limit**: Número máximo de registros a retornar
     """
-    # TODO: Consultar todos los usuarios con paginación
+    offset = (page - 1) * limit
+    statement = select(Usuario).order_by(Usuario.id).offset(offset).limit(limit)
+    usuarios = session.exec(statement).all()
+    response = [UsuarioRead.model_validate(item) for item in usuarios]
+    # usar el metodo from query para uso de calculos automaticos     
+    return usuarios_paginados.from_query(
+        items=response,
+        entity_class=Usuario,
+        session=session,
+        current_pg=page,
+        limit=limit,
+        )
+    
 
-    return usuarios
 
-
-# TODO: Endpoint para crear un nuevo usuario
 @router.post("/", response_model=UsuarioRead, status_code=status.HTTP_201_CREATED)
 def crear_usuario(
     usuario: UsuarioCreate,
@@ -53,41 +83,52 @@ def crear_usuario(
     
     - **nombre**: Nombre del usuario
     - **correo**: Correo electrónico único
+    - **contraseña**: Contraseña que se usará para acceder a la aplicación
     """
-    # TODO: Verificar que el correo no exista
-    statement = 
-    existing_user = 
+    statement = select(Usuario).where(Usuario.correo == usuario.correo.lower())
+    existing_user = session.exec(statement).first()
+    if existing_user: 
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail=f'{usuario.correo} ya se encuentra en uso'
+        )
     
-    # TODO: Crear el nuevo usuario
-    db_usuario = Usuario.model_validate(usuario)
+    usuario_data = usuario.model_dump()
+    
+    db_usuario = Usuario(**usuario_data)
+    session.add(db_usuario)
+    session.commit()
+    session.refresh(db_usuario) 
     
     return db_usuario
 
 
-# TODO: Endpoint para obtener un usuario por ID
 @router.get("/{usuario_id}", response_model=UsuarioRead)
 def obtener_usuario(
-    usuario_id: int,
-    session: Session = Depends(get_session)
+    usuario_id:int,
+    session:Session = Depends(get_session)
+    
 ):
     """
-    Obtiene un usuario específico por su ID.
-    
+    Obtiene un usuario específico por su ID.    
     - **usuario_id**: ID del usuario
     """
-    # TODO: Buscar el usuario por ID
-    usuario = 
-    
+    statement = select(Usuario).where(Usuario.id == usuario_id)
+    usuario = session.exec(statement).first()
+    if not usuario:
+        raise HTTPException(
+          status_code=status.HTTP_404_NOT_FOUND,
+          detail=f"Usuario con id {usuario_id} no enconteado"
+      )
     return usuario
-
-
-# TODO: Endpoint para actualizar un usuario
-@router.put("/{usuario_id}", response_model=UsuarioRead)
+      
+@router.put("/{usuario_id}",response_model=UsuarioRead)
 def actualizar_usuario(
     usuario_id: int,
     usuario_update: UsuarioUpdate,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ):
+
     """
     Actualiza la información de un usuario existente.
     
@@ -95,22 +136,39 @@ def actualizar_usuario(
     - **nombre**: Nuevo nombre (opcional)
     - **correo**: Nuevo correo (opcional)
     """
-    # TODO: Buscar el usuario
-    db_usuario = 
-    
-    # TODO: Si se actualiza el correo, verificar que no exista
-    
-    # TODO: Actualizar solo los campos proporcionados
-    usuario_data = 
-    
+    db_usuario = session.exec(select(Usuario).where(Usuario.id == usuario_id)).first()
+    if not db_usuario:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"usuario con id {usuario_id} no encontrado"
+        )
+        
+        
+    if usuario_update.correo:
+        validate_email = session.exec(
+            select(Usuario).
+            where(
+                Usuario.correo == usuario_update.correo.lower(), Usuario.id != usuario_id)
+            ).first()
+        if validate_email:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"{usuario_update.correo} ya está registrado, intenta con otro correo"
+            )
+    update_data = usuario_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        if value is not None:
+            setattr(db_usuario, field, value)
+    session.add(db_usuario)
+    session.commit()
+    session.refresh()
     return db_usuario
 
 
-# TODO: Endpoint para eliminar un usuario
 @router.delete("/{usuario_id}", status_code=status.HTTP_204_NO_CONTENT)
 def eliminar_usuario(
-    usuario_id: int,
-    session: Session = Depends(get_session)
+    usuario_id:int,
+    session:Session = Depends(get_session),
 ):
     """
     Elimina un usuario de la plataforma.
@@ -133,7 +191,6 @@ def eliminar_usuario(
     return None
 
 
-# TODO: Endpoint para obtener los favoritos de un usuario
 @router.get("/{usuario_id}/favoritos", response_model=List[PeliculaRead])
 def listar_favoritos_usuario(
     usuario_id: int,
@@ -144,16 +201,19 @@ def listar_favoritos_usuario(
     
     - **usuario_id**: ID del usuario
     """
-    # TODO: Verificar que el usuario existe
-    usuario = 
+
+    usuario = session.exec(select(Usuario).where(Usuario.id == usuario_id)).first()
+    if not usuario:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"El usuario con id {usuario_id} no existe")
     
-    # TODO: Obtener las películas favoritas del usuario
-    statement = 
-    
-    return peliculas
+
+    statement = select(Pelicula).join(Favorito).where(Favorito.id_usuario == usuario_id)
+    peliculas = session.exec(statement).all()
 
 
-# TODO: Endpoint para marcar una película como favorita
+    return [PeliculaRead.from_db_model(pelicula) for pelicula in peliculas]
+
+
 @router.post(
     "/{usuario_id}/favoritos/{pelicula_id}",
     status_code=status.HTTP_201_CREATED
@@ -197,13 +257,12 @@ def marcar_favorito(
             detail="La película ya está marcada como favorita"
         )
     
-    # TODO: Crear el favorito
-    favorito = 
-    
-    return {"message": "Película marcada como favorita exitosamente"}
+    favorito = Favorito(id_pelicula = pelicula_id, id_usuario = usuario_id)
+    session.add(favorito)
+    session.commit()
+    return MessageResponse(message="Pelicula agregada a favoritos")
 
 
-# TODO: Endpoint para eliminar una película de favoritos
 @router.delete(
     "/{usuario_id}/favoritos/{pelicula_id}",
     status_code=status.HTTP_204_NO_CONTENT
@@ -219,10 +278,12 @@ def eliminar_favorito(
     - **usuario_id**: ID del usuario
     - **pelicula_id**: ID de la película
     """
-    # TODO: Buscar el favorito
-    statement = 
-
-    favorito = 
+    favorito = session.exec(
+        select(Favorito).where(
+            Favorito.id_pelicula == pelicula_id,
+            Favorito.id_usuario == usuario_id
+        )
+    ).first()
     
     if not favorito:
         raise HTTPException(
@@ -230,12 +291,12 @@ def eliminar_favorito(
             detail="El favorito no existe"
         )
     
-    # TODO: Eliminar el favorito
-    
+    session.delete(favorito)
+    session.commit()    
     return None
 
 
-# TODO: Opcional - Endpoint para estadísticas del usuario
+# Endpoint para estadísticas del usuario
 @router.get("/{usuario_id}/estadisticas")
 def obtener_estadisticas_usuario(
     usuario_id: int,
@@ -246,8 +307,88 @@ def obtener_estadisticas_usuario(
     
     - **usuario_id**: ID del usuario
     """
-    # TODO: Verificar que el usuario existe
-    # TODO: Calcular número total de favoritos
-    # TODO: Obtener géneros más favoritos
-    # TODO: Calcular tiempo total de películas favoritas
-    pass
+    from sqlalchemy import func
+    from collections import Counter
+    
+    # Verificar que el usuario existe
+    usuario = session.get(Usuario, usuario_id)
+    if not usuario:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Usuario con id {usuario_id} no encontrado"
+        )
+    
+    # Calcular número total de favoritos
+    total_favoritos = session.exec(
+        select(func.count(Favorito.id)).where(Favorito.id_usuario == usuario_id)
+    ).one()
+    
+    # Obtener todas las películas favoritas con sus detalles
+    statement = (
+        select(Pelicula)
+        .join(Favorito)
+        .where(Favorito.id_usuario == usuario_id)
+    )
+    peliculas_favoritas = session.exec(statement).all()
+    
+    if not peliculas_favoritas:
+        return {
+            "usuario_id": usuario_id,
+            "nombre_usuario": usuario.nombre,
+            "total_favoritos": 0,
+            "duracion_total_minutos": 0,
+            "duracion_total_horas": 0,
+            "generos_favoritos": [],
+            "directores_favoritos": [],
+            "decada_favorita": None,
+            "clasificacion_mas_vista": None
+        }
+    
+    # Obtener géneros más favoritos
+    generos = [p.genero for p in peliculas_favoritas]
+    contador_generos = Counter(generos)
+    generos_favoritos = [
+        {"genero": genero, "cantidad": cantidad}
+        for genero, cantidad in contador_generos.most_common(5)
+    ]
+    
+    # Obtener directores favoritos
+    directores = [p.director for p in peliculas_favoritas]
+    contador_directores = Counter(directores)
+    directores_favoritos = [
+        {"director": director, "cantidad": cantidad}
+        for director, cantidad in contador_directores.most_common(5)
+    ]
+    
+    # Calcular tiempo total de películas favoritas
+    duracion_total_minutos = sum(p.duracion for p in peliculas_favoritas)
+    duracion_total_horas = round(duracion_total_minutos / 60, 2)
+    
+    # Calcular década favorita
+    decadas = [(p.año // 10) * 10 for p in peliculas_favoritas]
+    contador_decadas = Counter(decadas)
+    decada_favorita = contador_decadas.most_common(1)[0] if contador_decadas else None
+    
+    # Clasificación más vista
+    clasificaciones = [p.clasificacion for p in peliculas_favoritas]
+    contador_clasificaciones = Counter(clasificaciones)
+    clasificacion_mas_vista = contador_clasificaciones.most_common(1)[0] if contador_clasificaciones else None
+    
+    return {
+        "usuario_id": usuario_id,
+        "nombre_usuario": usuario.nombre,
+        "total_favoritos": total_favoritos,
+        "duracion_total_minutos": duracion_total_minutos,
+        "duracion_total_horas": duracion_total_horas,
+        "generos_favoritos": generos_favoritos,
+        "directores_favoritos": directores_favoritos,
+        "decada_favorita": {
+            "decada": f"{decada_favorita[0]}s",
+            "cantidad": decada_favorita[1]
+        } if decada_favorita else None,
+        "clasificacion_mas_vista": {
+            "clasificacion": clasificacion_mas_vista[0],
+            "cantidad": clasificacion_mas_vista[1]
+        } if clasificacion_mas_vista else None,
+        "promedio_duracion": round(duracion_total_minutos / total_favoritos, 2) if total_favoritos > 0 else 0
+    }
