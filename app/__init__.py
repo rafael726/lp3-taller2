@@ -3,16 +3,21 @@ Paquete principal de la aplicación API de Películas.
 Este módulo inicializa el paquete y expone los componentes principales.
 """
 
-# TODO: Importar los componentes principales para facilitar su uso
-# Ejemplo:
-# from .database import get_session, engine
-# from .models import Usuario, Pelicula, Favorito
-# from .config import settings
+from .database import get_session, engine, create_db_and_tables
+from .models import Usuario, Pelicula, Favorito
+from .config import settings, get_settings
 
-__version__ = "1.0.0"
-__author__ = "Tu Nombre"  # TODO: Reemplazar con tu nombre
+__version__ = "1.0.1"
+__author__ = "Rafael"
 
-# TODO: Opcional - Definir __all__ para controlar qué se exporta
-# __all__ = [
-# ]
+__all__ = [
+    "get_session",
+    "engine",
+    "create_db_and_tables",
+    "Usuario",
+    "Pelicula",
+    "Favorito",
+    "settings",
+    "get_settings",
+]
 
