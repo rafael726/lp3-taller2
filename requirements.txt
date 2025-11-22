@@ -11,8 +11,15 @@ sqlalchemy
 # Validación y utilidades
 python-multipart
 python-dotenv
+email-validator
 
 # Testing
 pytest
 pytest-asyncio
 httpx
+
+# Multipart forms
+python-multipart
+
+# request 
+requests
